@@ -8,13 +8,21 @@
  * @module
  */
 
+import type * as featureRequests from "../featureRequests.js";
+import type * as refinementQuestions from "../refinementQuestions.js";
+import type * as trips from "../trips.js";
+
 import type {
   ApiFromModules,
   FilterApi,
   FunctionReference,
 } from "convex/server";
 
-declare const fullApi: ApiFromModules<{}>;
+declare const fullApi: ApiFromModules<{
+  featureRequests: typeof featureRequests;
+  refinementQuestions: typeof refinementQuestions;
+  trips: typeof trips;
+}>;
 
 /**
  * A utility for referencing Convex functions in your app's public API.
