@@ -308,12 +308,14 @@ export default function Home() {
   const [emailTo, setEmailTo] = useState("");
   const [emailMessage, setEmailMessage] = useState<string | null>(null);
   const [discoveryMessage, setDiscoveryMessage] = useState<string | null>(null);
+  const [routingMessage, setRoutingMessage] = useState<string | null>(null);
 
   const createTripMutation = useMutation(api.trips.createTrip);
   const setRating = useMutation(api.trips.setRating);
   const generatePlan = useMutation(api.plans.generatePlan);
   const savePlan = useMutation(api.plans.savePlan);
   const discoverAttractions = useAction(api.discovery.discoverAttractions);
+  const refinePlanRoutes = useAction(api.routing.refinePlanRoutes);
   const sendSavedPlan = useAction(api.email.sendSavedPlan);
 
   const trips = useQuery(
@@ -397,6 +399,7 @@ export default function Home() {
       setActiveTripId(tripId);
       setSelectedAttractionId(null);
       setActiveDayIndex(0);
+      setRoutingMessage(null);
       const result = await discoverAttractions({ sessionId, tripId });
       setDiscoveryMessage(result.message);
     } catch (error) {
@@ -431,10 +434,24 @@ export default function Home() {
 
     setPlanning(true);
     try {
-      await generatePlan({
+      const planId = await generatePlan({
         tripId: workspace.trip._id,
         sessionId,
       });
+      try {
+        const routingResult = await refinePlanRoutes({
+          tripId: workspace.trip._id,
+          planId,
+          sessionId,
+        });
+        setRoutingMessage(routingResult.message);
+      } catch (error) {
+        setRoutingMessage(
+          error instanceof Error
+            ? error.message
+            : "Route refinement could not run.",
+        );
+      }
       setActiveDayIndex(0);
       setEmailMessage(null);
     } finally {
@@ -534,6 +551,7 @@ export default function Home() {
                 setSelectedAttractionId(null);
                 setActiveDayIndex(0);
                 setDiscoveryMessage(null);
+                setRoutingMessage(null);
               }}
               onStartDateChange={setStartDate}
             />
@@ -543,6 +561,7 @@ export default function Home() {
               canPlan={Boolean(workspace && attractions.length > 0)}
               plan={plan}
               planning={planning}
+              routingMessage={routingMessage}
               savingPlan={savingPlan}
               onPlan={createPlan}
               onSave={saveCurrentPlan}
@@ -863,6 +882,7 @@ function PlanControls({
   canPlan,
   plan,
   planning,
+  routingMessage,
   savingPlan,
   onPlan,
   onSave,
@@ -871,6 +891,7 @@ function PlanControls({
   canPlan: boolean;
   plan: Plan | null | undefined;
   planning: boolean;
+  routingMessage: string | null;
   savingPlan: boolean;
   onPlan: () => void;
   onSave: () => void;
@@ -957,6 +978,13 @@ function PlanControls({
 
         {plan && (
           <p className="text-xs leading-5 text-slate-600">{plan.summary}</p>
+        )}
+
+        {routingMessage && (
+          <div className="flex gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-900">
+            <Navigation className="mt-0.5 size-3.5 shrink-0" />
+            <span>{routingMessage}</span>
+          </div>
         )}
       </CardContent>
     </Card>

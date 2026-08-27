@@ -31,8 +31,9 @@ See [docs/research.md](docs/research.md) for current findings.
 
 The app lives in `travelsmart/`. It currently supports draft trip creation,
 provider-aware discovery with a Tokyo fallback dataset, attraction ratings,
-route planning, save/reopen, hotel-area recommendation, and AgentMail-ready
-itinerary email records.
+route planning, Google Routes-ready route refinement with fallback estimates,
+save/reopen, hotel-area recommendation, and AgentMail-ready itinerary email
+records.
 
 Run checks from `travelsmart/`:
 

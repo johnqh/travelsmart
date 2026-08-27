@@ -232,6 +232,38 @@ export default defineSchema({
     .index("by_planDayId_and_sortOrder", ["planDayId", "sortOrder"])
     .index("by_planId", ["planId"]),
 
+  routeEstimates: defineTable({
+    cacheKey: v.string(),
+    requestedMode: v.union(
+      v.literal("walk"),
+      v.literal("transit"),
+      v.literal("rideshare"),
+      v.literal("car"),
+    ),
+    providerMode: v.string(),
+    originLat: v.number(),
+    originLng: v.number(),
+    destinationLat: v.number(),
+    destinationLng: v.number(),
+    durationMinutes: v.number(),
+    distanceMeters: v.number(),
+    polyline: v.array(v.object({ lat: v.number(), lng: v.number() })),
+    instructionsSummary: v.string(),
+    transitLineNames: v.array(v.string()),
+    transferCount: v.number(),
+    fallbackReason: v.optional(v.string()),
+    provider: v.union(v.literal("googleRoutes"), v.literal("heuristic")),
+    status: v.union(
+      v.literal("ready"),
+      v.literal("fallback"),
+      v.literal("error"),
+    ),
+    fetchedAt: v.number(),
+    error: v.optional(v.string()),
+  })
+    .index("by_cacheKey", ["cacheKey"])
+    .index("by_provider_and_fetchedAt", ["provider", "fetchedAt"]),
+
   hotelRecommendations: defineTable({
     tripId: v.id("trips"),
     planId: v.id("plans"),

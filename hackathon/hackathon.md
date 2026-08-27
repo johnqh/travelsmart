@@ -91,3 +91,23 @@
 - Verification: `npm run typecheck`, `npm run lint`, `npm run build`, and
   `curl -I http://localhost:50665` all completed successfully. Lint warnings
   are still limited to known image optimization/starter warnings.
+
+## 2026-08-27 Phase 5
+
+- Added `routeEstimates`, a Convex route-cache table keyed by rounded origin,
+  destination, and requested mode.
+- Added `routing:refinePlanRoutes`, a post-planning Convex action that can call
+  Google Routes `computeRoutes` for each generated route leg and patch the
+  saved leg duration, distance, polyline, transit lines, and transfer count.
+- Preserved the no-transfer transit rule: if Google returns a transit route
+  with transfers, the action switches that leg to rideshare using a driving
+  route fallback.
+- Wired the Plan flow so `Plan` / `Plan Again` first creates the deterministic
+  itinerary, then asks the route refinement action to improve route legs when
+  Google routing is configured.
+- Local smoke test against plan `k574s3wbhfneq1gbgm71qmbqw58d8ecy` returned the
+  expected fallback message because `GOOGLE_MAPS_API_KEY` is not configured in
+  the local Convex environment.
+- Verification: `npm run typecheck`, `npm run lint`, and `npm run build`
+  completed successfully. Lint warnings remain the known `<img>` and starter
+  `_error` warnings.
