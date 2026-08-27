@@ -26,3 +26,11 @@ Use Google Maps Platform for routing and transit coverage, with Convex as the
 backend and OpenAI/Firecrawl/AgentMail integrated into the product flow.
 
 See [docs/research.md](docs/research.md) for current findings.
+
+## Planning Docs
+
+- [Product spec](docs/product-spec.md)
+- [Technical spec](docs/technical-spec.md)
+- [Itinerary planner spec](docs/itinerary-planner-spec.md)
+- [Implementation plan](docs/implementation-plan.md)
+- [Hackathon plan](docs/hackathon-plan.md)
