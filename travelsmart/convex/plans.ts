@@ -1,6 +1,7 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 const planStatusValidator = v.union(
   v.literal("generated"),
@@ -85,6 +86,40 @@ const planValidator = v.object({
   updatedAt: v.number(),
   savedAt: v.optional(v.number()),
   days: v.array(planDayValidator),
+});
+
+const savedPlanValidator = v.object({
+  _id: v.id("plans"),
+  _creationTime: v.number(),
+  tripId: v.id("trips"),
+  name: v.string(),
+  destinationName: v.string(),
+  startDate: v.string(),
+  endDate: v.string(),
+  score: v.number(),
+  summary: v.string(),
+  savedAt: v.optional(v.number()),
+});
+
+const hotelRecommendationValidator = v.object({
+  _id: v.id("hotelRecommendations"),
+  _creationTime: v.number(),
+  areaName: v.string(),
+  centerLat: v.number(),
+  centerLng: v.number(),
+  summary: v.string(),
+  safetyNotes: v.string(),
+  transportNotes: v.string(),
+  nearbyTransitHubs: v.array(v.string()),
+  searchUrl: v.string(),
+  score: v.number(),
+  createdAt: v.number(),
+});
+
+const emailPayloadValidator = v.object({
+  subject: v.string(),
+  text: v.string(),
+  html: v.string(),
 });
 
 type RatedAttraction = Doc<"attractions"> & { rating: 0 | 1 | 2 | 3 | 4 };
@@ -219,6 +254,82 @@ export const getCurrentPlan = query({
       updatedAt: plan.updatedAt,
       savedAt: plan.savedAt,
       days: daysWithItems,
+    };
+  },
+});
+
+export const listSavedPlans = query({
+  args: { sessionId: v.string() },
+  returns: v.array(savedPlanValidator),
+  handler: async (ctx, args) => {
+    const plans = await ctx.db
+      .query("plans")
+      .withIndex("by_sessionId_and_status_and_updatedAt", (q) =>
+        q.eq("sessionId", args.sessionId).eq("status", "saved"),
+      )
+      .order("desc")
+      .take(20);
+
+    const savedPlans = [];
+    for (const plan of plans) {
+      const trip = await ctx.db.get(plan.tripId);
+      if (!trip || trip.sessionId !== args.sessionId) {
+        continue;
+      }
+
+      savedPlans.push({
+        _id: plan._id,
+        _creationTime: plan._creationTime,
+        tripId: plan.tripId,
+        name: plan.name,
+        destinationName: trip.destinationName,
+        startDate: trip.startDate,
+        endDate: trip.endDate,
+        score: plan.score,
+        summary: plan.summary,
+        savedAt: plan.savedAt,
+      });
+    }
+
+    return savedPlans;
+  },
+});
+
+export const getHotelRecommendation = query({
+  args: {
+    planId: v.id("plans"),
+    sessionId: v.string(),
+  },
+  returns: v.union(v.null(), hotelRecommendationValidator),
+  handler: async (ctx, args) => {
+    const plan = await ctx.db.get(args.planId);
+    if (!plan || plan.sessionId !== args.sessionId) {
+      return null;
+    }
+
+    const recommendation = await ctx.db
+      .query("hotelRecommendations")
+      .withIndex("by_planId", (q) => q.eq("planId", args.planId))
+      .order("desc")
+      .first();
+
+    if (!recommendation || recommendation.sessionId !== args.sessionId) {
+      return null;
+    }
+
+    return {
+      _id: recommendation._id,
+      _creationTime: recommendation._creationTime,
+      areaName: recommendation.areaName,
+      centerLat: recommendation.centerLat,
+      centerLng: recommendation.centerLng,
+      summary: recommendation.summary,
+      safetyNotes: recommendation.safetyNotes,
+      transportNotes: recommendation.transportNotes,
+      nearbyTransitHubs: recommendation.nearbyTransitHubs,
+      searchUrl: recommendation.searchUrl,
+      score: recommendation.score,
+      createdAt: recommendation.createdAt,
     };
   },
 });
@@ -364,6 +475,307 @@ export const generatePlan = mutation({
     return planId;
   },
 });
+
+export const savePlan = mutation({
+  args: {
+    planId: v.id("plans"),
+    sessionId: v.string(),
+  },
+  returns: v.id("plans"),
+  handler: async (ctx, args) => {
+    const plan = await ctx.db.get(args.planId);
+    if (!plan || plan.sessionId !== args.sessionId) {
+      throw new Error("Plan not found.");
+    }
+
+    const trip = await ctx.db.get(plan.tripId);
+    if (!trip || trip.sessionId !== args.sessionId) {
+      throw new Error("Trip not found.");
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(args.planId, {
+      status: "saved",
+      savedAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.patch(plan.tripId, {
+      status: "saved",
+      updatedAt: now,
+    });
+
+    await upsertHotelRecommendation(ctx, {
+      planId: args.planId,
+      trip,
+      sessionId: args.sessionId,
+      now,
+    });
+
+    return args.planId;
+  },
+});
+
+export const getPlanEmailPayload = internalQuery({
+  args: {
+    planId: v.id("plans"),
+    tripId: v.id("trips"),
+    sessionId: v.string(),
+  },
+  returns: v.union(v.null(), emailPayloadValidator),
+  handler: async (ctx, args) => {
+    const trip = await ctx.db.get(args.tripId);
+    const plan = await ctx.db.get(args.planId);
+    if (
+      !trip ||
+      !plan ||
+      trip.sessionId !== args.sessionId ||
+      plan.sessionId !== args.sessionId ||
+      plan.tripId !== args.tripId ||
+      plan.status !== "saved"
+    ) {
+      return null;
+    }
+
+    const days = await loadPlanDays(ctx, args.planId);
+    return buildEmailPayload({ trip, plan, days });
+  },
+});
+
+async function loadPlanDays(ctx: QueryCtx, planId: Id<"plans">) {
+  const days = await ctx.db
+    .query("planDays")
+    .withIndex("by_planId_and_dayIndex", (q) => q.eq("planId", planId))
+    .order("asc")
+    .take(10);
+
+  const result = [];
+  for (const day of days) {
+    const items = await ctx.db
+      .query("planItems")
+      .withIndex("by_planDayId_and_sortOrder", (q) => q.eq("planDayId", day._id))
+      .order("asc")
+      .take(20);
+    const legs = await ctx.db
+      .query("routeLegs")
+      .withIndex("by_planDayId_and_sortOrder", (q) => q.eq("planDayId", day._id))
+      .order("asc")
+      .take(20);
+
+    result.push({ day, items, legs });
+  }
+
+  return result;
+}
+
+async function upsertHotelRecommendation(
+  ctx: MutationCtx,
+  {
+    now,
+    planId,
+    sessionId,
+    trip,
+  }: {
+    now: number;
+    planId: Id<"plans">;
+    sessionId: string;
+    trip: Doc<"trips">;
+  },
+) {
+  const days = await ctx.db
+    .query("planDays")
+    .withIndex("by_planId_and_dayIndex", (q) => q.eq("planId", planId))
+    .order("asc")
+    .take(10);
+
+  const anchors: Doc<"planItems">[] = [];
+  for (const day of days) {
+    const items = await ctx.db
+      .query("planItems")
+      .withIndex("by_planDayId_and_sortOrder", (q) => q.eq("planDayId", day._id))
+      .order("asc")
+      .take(20);
+    const attractionItems = items.filter((item) => item.type === "attraction");
+    if (attractionItems[0]) {
+      anchors.push(attractionItems[0]);
+    }
+    if (attractionItems.length > 1) {
+      anchors.push(attractionItems[attractionItems.length - 1]);
+    }
+  }
+
+  const center =
+    anchors.length > 0
+      ? {
+          lat: anchors.reduce((sum, item) => sum + item.lat, 0) / anchors.length,
+          lng: anchors.reduce((sum, item) => sum + item.lng, 0) / anchors.length,
+        }
+      : { lat: trip.destinationLat, lng: trip.destinationLng };
+  const area = chooseHotelArea(center);
+  const firstStops = anchors
+    .filter((_, index) => index % 2 === 0)
+    .map((item) => item.name)
+    .slice(0, 3)
+    .join(", ");
+  const lastStops = anchors
+    .filter((_, index) => index % 2 === 1)
+    .map((item) => item.name)
+    .slice(0, 3)
+    .join(", ");
+  const searchUrl = `https://www.google.com/travel/hotels/${encodeURIComponent(
+    `${area.name} ${trip.destinationName}`,
+  )}`;
+
+  const existing = await ctx.db
+    .query("hotelRecommendations")
+    .withIndex("by_planId", (q) => q.eq("planId", planId))
+    .order("desc")
+    .first();
+  const recommendation = {
+    tripId: trip._id,
+    planId,
+    sessionId,
+    areaName: area.name,
+    centerLat: area.lat,
+    centerLng: area.lng,
+    summary: `${area.name} is the best first hotel zone for this plan because it keeps the daily starts and finishes balanced without forcing a far first leg.`,
+    safetyNotes:
+      "Use hotels close to major stations, well-lit main streets, and current traveler reviews. This is a planning heuristic, not a live safety guarantee.",
+    transportNotes: `Good base for reaching first stops such as ${firstStops || "the morning anchors"} and returning from last stops such as ${lastStops || "the evening anchors"}.`,
+    nearbyTransitHubs: area.hubs,
+    searchUrl,
+    score: area.score,
+    createdAt: now,
+  };
+
+  if (existing) {
+    await ctx.db.patch(existing._id, recommendation);
+  } else {
+    await ctx.db.insert("hotelRecommendations", recommendation);
+  }
+}
+
+function chooseHotelArea(center: { lat: number; lng: number }) {
+  if (center.lng < 139.725) {
+    return {
+      name: "Shibuya or Omotesando",
+      lat: 35.6628,
+      lng: 139.705,
+      hubs: ["Shibuya Station", "Omotesando Station", "Harajuku Station"],
+      score: 86,
+    };
+  }
+  if (center.lng > 139.79) {
+    return {
+      name: "Asakusa or Ueno",
+      lat: 35.7124,
+      lng: 139.781,
+      hubs: ["Ueno Station", "Asakusa Station", "Oshiage Station"],
+      score: 84,
+    };
+  }
+  if (center.lng > 139.755) {
+    return {
+      name: "Ginza or Tokyo Station",
+      lat: 35.678,
+      lng: 139.7645,
+      hubs: ["Tokyo Station", "Ginza Station", "Shimbashi Station"],
+      score: 90,
+    };
+  }
+  return {
+    name: "Akasaka or Roppongi",
+    lat: 35.668,
+    lng: 139.737,
+    hubs: ["Akasaka Station", "Roppongi Station", "Tameike-sanno Station"],
+    score: 82,
+  };
+}
+
+function buildEmailPayload({
+  days,
+  plan,
+  trip,
+}: {
+  days: Array<{
+    day: Doc<"planDays">;
+    items: Doc<"planItems">[];
+    legs: Doc<"routeLegs">[];
+  }>;
+  plan: Doc<"plans">;
+  trip: Doc<"trips">;
+}) {
+  const subject = `TravelSmart itinerary for ${trip.destinationName}`;
+  const dayText = days
+    .map(({ day, items, legs }) => {
+      const itemLines = items.map((item, index) => {
+        const leg = index > 0 ? legs[index - 1] : null;
+        const legText = leg
+          ? `\n   ${routeModeLabel(leg.mode)} ${leg.durationMinutes} min, ${Math.round(leg.distanceMeters / 100) / 10} km`
+          : "";
+        return `${legText}\n- ${item.startTime}-${item.endTime}: ${item.name} (${item.type})`;
+      });
+      return `\n${day.date}\n${day.summary}\n${itemLines.join("\n")}`;
+    })
+    .join("\n");
+  const text = `${plan.summary}\n\n${dayText}\n\nOpen ticket and official links from the saved TravelSmart plan.`;
+  const html = `
+    <main style="font-family:Inter,Arial,sans-serif;color:#0f172a;line-height:1.55">
+      <h1 style="margin:0 0 8px">TravelSmart itinerary for ${escapeHtml(trip.destinationName)}</h1>
+      <p>${escapeHtml(plan.summary)}</p>
+      ${days
+        .map(
+          ({ day, items, legs }) => `
+            <section style="margin:24px 0;padding:16px;border:1px solid #cbd5e1;border-radius:8px">
+              <h2 style="margin:0 0 6px">${escapeHtml(day.date)}</h2>
+              <p style="margin:0 0 12px;color:#475569">${escapeHtml(day.summary)}</p>
+              ${items
+                .map((item, index) => {
+                  const leg = index > 0 ? legs[index - 1] : null;
+                  return `
+                    ${
+                      leg
+                        ? `<div style="font-size:12px;color:#2563eb;margin:8px 0">${escapeHtml(routeModeLabel(leg.mode))}: ${leg.durationMinutes} min, ${Math.round(leg.distanceMeters / 100) / 10} km</div>`
+                        : ""
+                    }
+                    <div style="padding:10px 0;border-top:1px solid #e2e8f0">
+                      <strong>${escapeHtml(item.startTime)}-${escapeHtml(item.endTime)}</strong>
+                      ${escapeHtml(item.name)}
+                      <span style="color:#64748b">(${escapeHtml(item.type)})</span>
+                    </div>
+                  `;
+                })
+                .join("")}
+            </section>
+          `,
+        )
+        .join("")}
+    </main>
+  `;
+
+  return { subject, text, html };
+}
+
+function routeModeLabel(mode: "walk" | "transit" | "rideshare" | "car") {
+  if (mode === "walk") {
+    return "Walk";
+  }
+  if (mode === "transit") {
+    return "Direct transit";
+  }
+  if (mode === "car") {
+    return "Drive";
+  }
+  return "Taxi/rideshare";
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
 
 function buildPlanDraft({
   dates,

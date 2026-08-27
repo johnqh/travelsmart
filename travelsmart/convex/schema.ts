@@ -198,6 +198,46 @@ export default defineSchema({
     .index("by_planDayId_and_sortOrder", ["planDayId", "sortOrder"])
     .index("by_planId", ["planId"]),
 
+  hotelRecommendations: defineTable({
+    tripId: v.id("trips"),
+    planId: v.id("plans"),
+    sessionId: v.string(),
+    areaName: v.string(),
+    centerLat: v.number(),
+    centerLng: v.number(),
+    summary: v.string(),
+    safetyNotes: v.string(),
+    transportNotes: v.string(),
+    nearbyTransitHubs: v.array(v.string()),
+    searchUrl: v.string(),
+    score: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_planId", ["planId"])
+    .index("by_tripId", ["tripId"])
+    .index("by_sessionId", ["sessionId"]),
+
+  outboundEmails: defineTable({
+    tripId: v.id("trips"),
+    planId: v.id("plans"),
+    sessionId: v.string(),
+    to: v.string(),
+    subject: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("sent"),
+      v.literal("skipped"),
+      v.literal("error"),
+    ),
+    providerMessageId: v.optional(v.string()),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    sentAt: v.optional(v.number()),
+  })
+    .index("by_planId", ["planId"])
+    .index("by_tripId", ["tripId"])
+    .index("by_sessionId", ["sessionId"]),
+
   featureRequests: defineTable({
     title: v.string(),
     description: v.string(),

@@ -39,3 +39,23 @@
 - Smoke-tested plan generation against a Tokyo demo trip. The current planner
   generated three days, included 10 of 12 rated attractions, inserted lunch and
   dinner each day, and exposed two skipped attractions for gray map pins.
+
+## 2026-08-27 Phase 3
+
+- Added saved-plan persistence by marking generated plans and trips as `saved`
+  without deleting older saved plans when the user later clicks `Plan Again`.
+- Added hotel-area recommendation storage and a first heuristic that recommends
+  a Tokyo base from the first and last attraction stops across all planned days.
+- Added an AgentMail-ready Convex action for sending saved itineraries, with
+  queued/sent/skipped/error email records stored in Convex.
+- Wired the UI with Save/Saved state, a `Stay & Share` panel, hotel search link,
+  nearby transit hub chips, email form, and recent email activity.
+- Fixed Convex return validation for outbound email history by returning an
+  explicit public shape instead of raw documents with `sessionId`.
+- Smoke-tested `plans:savePlan`, `plans:getHotelRecommendation`, and
+  `email:sendSavedPlan`. Local email sending records `skipped` until
+  `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` are configured.
+- Verification: `npm run typecheck`, `npm run lint`, `npm run build`, and
+  `curl -I http://localhost:50665` all completed successfully. Lint currently
+  reports only known `<img>` optimization warnings and the starter
+  `app/error.tsx` unused `_error` warning.

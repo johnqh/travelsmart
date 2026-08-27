@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as email from "../email.js";
 import type * as featureRequests from "../featureRequests.js";
 import type * as plans from "../plans.js";
 import type * as refinementQuestions from "../refinementQuestions.js";
@@ -20,6 +21,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  email: typeof email;
   featureRequests: typeof featureRequests;
   plans: typeof plans;
   refinementQuestions: typeof refinementQuestions;

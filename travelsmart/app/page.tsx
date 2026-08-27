@@ -1,17 +1,22 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import {
+  Building2,
   CalendarDays,
   Car,
+  CheckCircle2,
   Clock,
   ExternalLink,
   Footprints,
+  Hotel,
+  Mail,
   MapPin,
   Navigation,
   RefreshCw,
   Route,
+  Send,
   Sparkles,
   Star,
   Train,
@@ -120,6 +125,7 @@ type PlanDay = {
 
 type Plan = {
   _id: Id<"plans">;
+  tripId: Id<"trips">;
   name: string;
   status: "generated" | "saved" | "archived";
   plannerVersion: string;
@@ -128,6 +134,31 @@ type Plan = {
   excludedAttractionIds: Id<"attractions">[];
   diagnostics: string;
   days: PlanDay[];
+};
+
+type HotelRecommendation = {
+  _id: Id<"hotelRecommendations">;
+  areaName: string;
+  centerLat: number;
+  centerLng: number;
+  summary: string;
+  safetyNotes: string;
+  transportNotes: string;
+  nearbyTransitHubs: string[];
+  searchUrl: string;
+  score: number;
+  createdAt: number;
+};
+
+type OutboundEmail = {
+  _id: Id<"outboundEmails">;
+  to: string;
+  subject: string;
+  status: "queued" | "sent" | "skipped" | "error";
+  providerMessageId?: string;
+  error?: string;
+  createdAt: number;
+  sentAt?: number;
 };
 
 const ratingOptions = [0, 1, 2, 3, 4] as const;
@@ -253,11 +284,17 @@ export default function Home() {
   );
   const [creating, setCreating] = useState(false);
   const [planning, setPlanning] = useState(false);
+  const [savingPlan, setSavingPlan] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
   const [activeDayIndex, setActiveDayIndex] = useState(0);
+  const [emailTo, setEmailTo] = useState("");
+  const [emailMessage, setEmailMessage] = useState<string | null>(null);
 
   const createDemoTrip = useMutation(api.trips.createDemoTrip);
   const setRating = useMutation(api.trips.setRating);
   const generatePlan = useMutation(api.plans.generatePlan);
+  const savePlan = useMutation(api.plans.savePlan);
+  const sendSavedPlan = useAction(api.email.sendSavedPlan);
 
   const trips = useQuery(
     api.trips.listTrips,
@@ -270,6 +307,14 @@ export default function Home() {
   const plan = useQuery(
     api.plans.getCurrentPlan,
     sessionId && activeTripId ? { sessionId, tripId: activeTripId } : "skip",
+  );
+  const hotelRecommendation = useQuery(
+    api.plans.getHotelRecommendation,
+    sessionId && plan ? { sessionId, planId: plan._id } : "skip",
+  );
+  const outboundEmails = useQuery(
+    api.email.listForPlan,
+    sessionId && plan ? { sessionId, planId: plan._id } : "skip",
   );
 
   const attractions = useMemo(() => workspace?.attractions ?? [], [workspace]);
@@ -360,8 +405,47 @@ export default function Home() {
         sessionId,
       });
       setActiveDayIndex(0);
+      setEmailMessage(null);
     } finally {
       setPlanning(false);
+    }
+  }
+
+  async function saveCurrentPlan() {
+    if (!sessionId || !plan || savingPlan) {
+      return;
+    }
+
+    setSavingPlan(true);
+    try {
+      await savePlan({ planId: plan._id, sessionId });
+      setEmailMessage("Plan saved. Hotel area recommendation is ready.");
+    } finally {
+      setSavingPlan(false);
+    }
+  }
+
+  async function emailCurrentPlan() {
+    if (!sessionId || !plan || sendingEmail) {
+      return;
+    }
+
+    setSendingEmail(true);
+    setEmailMessage(null);
+    try {
+      const result = await sendSavedPlan({
+        tripId: plan.tripId,
+        planId: plan._id,
+        sessionId,
+        to: emailTo,
+      });
+      setEmailMessage(result.message);
+    } catch (error) {
+      setEmailMessage(
+        error instanceof Error ? error.message : "Email send failed.",
+      );
+    } finally {
+      setSendingEmail(false);
     }
   }
 
@@ -387,7 +471,7 @@ export default function Home() {
             </div>
             <div className="flex items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-900">
               <Sparkles className="size-4" />
-              Phase 2
+              Phase 3
             </div>
           </div>
         </header>
@@ -425,7 +509,9 @@ export default function Home() {
               canPlan={Boolean(workspace && attractions.length > 0)}
               plan={plan}
               planning={planning}
+              savingPlan={savingPlan}
               onPlan={createPlan}
+              onSave={saveCurrentPlan}
             />
 
             <AttractionList
@@ -455,6 +541,16 @@ export default function Home() {
               onSelectAttraction={(attractionId) =>
                 setSelectedAttractionId(attractionId)
               }
+            />
+            <HotelAndSharePanel
+              emails={outboundEmails ?? []}
+              emailMessage={emailMessage}
+              emailTo={emailTo}
+              hotelRecommendation={hotelRecommendation}
+              plan={plan}
+              sendingEmail={sendingEmail}
+              onEmailToChange={setEmailTo}
+              onSendEmail={emailCurrentPlan}
             />
             <AttractionDetails attraction={selectedAttraction} />
           </aside>
@@ -654,14 +750,20 @@ function PlanControls({
   canPlan,
   plan,
   planning,
+  savingPlan,
   onPlan,
+  onSave,
 }: {
   attractionCount: number;
   canPlan: boolean;
   plan: Plan | null | undefined;
   planning: boolean;
+  savingPlan: boolean;
   onPlan: () => void;
+  onSave: () => void;
 }) {
+  const isSaved = plan?.status === "saved";
+
   return (
     <Card className="rounded-lg border-slate-200 shadow-sm">
       <CardContent className="space-y-3 p-4">
@@ -704,22 +806,209 @@ function PlanControls({
           <Metric label="Score" value={plan ? String(plan.score) : "-"} />
         </div>
 
-        <Button
-          type="button"
-          className="h-10 w-full bg-teal-700 text-white hover:bg-teal-800"
-          disabled={!canPlan || planning}
-          onClick={onPlan}
-        >
-          {plan ? (
-            <RefreshCw className={cn("size-4", planning && "animate-spin")} />
-          ) : (
-            <Route className="size-4" />
+        <div className={cn("grid gap-2", plan && "grid-cols-2")}>
+          <Button
+            type="button"
+            className="h-10 w-full bg-teal-700 text-white hover:bg-teal-800"
+            disabled={!canPlan || planning}
+            onClick={onPlan}
+          >
+            {plan ? (
+              <RefreshCw className={cn("size-4", planning && "animate-spin")} />
+            ) : (
+              <Route className="size-4" />
+            )}
+            {planning ? "Planning" : plan ? "Plan Again" : "Plan"}
+          </Button>
+
+          {plan && (
+            <Button
+              type="button"
+              variant="outline"
+              className={cn(
+                "h-10 w-full border-teal-200 bg-white text-teal-900 hover:bg-teal-50",
+                isSaved && "border-emerald-200 bg-emerald-50 text-emerald-800",
+              )}
+              disabled={savingPlan || isSaved}
+              onClick={onSave}
+            >
+              {isSaved ? (
+                <CheckCircle2 className="size-4" />
+              ) : (
+                <Building2 className="size-4" />
+              )}
+              {savingPlan ? "Saving" : isSaved ? "Saved" : "Save"}
+            </Button>
           )}
-          {planning ? "Planning" : plan ? "Plan Again" : "Plan"}
-        </Button>
+        </div>
 
         {plan && (
           <p className="text-xs leading-5 text-slate-600">{plan.summary}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function HotelAndSharePanel({
+  emails,
+  emailMessage,
+  emailTo,
+  hotelRecommendation,
+  plan,
+  sendingEmail,
+  onEmailToChange,
+  onSendEmail,
+}: {
+  emails: OutboundEmail[];
+  emailMessage: string | null;
+  emailTo: string;
+  hotelRecommendation: HotelRecommendation | null | undefined;
+  plan: Plan | null | undefined;
+  sendingEmail: boolean;
+  onEmailToChange: (value: string) => void;
+  onSendEmail: () => void;
+}) {
+  const isSaved = plan?.status === "saved";
+
+  return (
+    <Card className="rounded-lg border-slate-200 shadow-sm">
+      <CardHeader className="space-y-1 p-4">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Hotel className="size-4 text-teal-700" />
+          Stay & Share
+        </CardTitle>
+        <CardDescription>
+          {isSaved
+            ? "Hotel area and itinerary email are ready."
+            : plan
+              ? "Save this route to lock the stay recommendation."
+              : "Generate a route before saving."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 p-4 pt-0">
+        {isSaved && hotelRecommendation ? (
+          <div className="space-y-3 rounded-lg border border-teal-200 bg-teal-50 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-teal-700">
+                  Recommended Area
+                </div>
+                <div className="mt-1 text-base font-semibold text-teal-950">
+                  {hotelRecommendation.areaName}
+                </div>
+              </div>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-teal-800">
+                {hotelRecommendation.score}
+              </span>
+            </div>
+            <p className="text-sm leading-6 text-teal-950">
+              {hotelRecommendation.summary}
+            </p>
+            <div className="space-y-2 text-xs leading-5 text-teal-950">
+              <div className="flex gap-2">
+                <Building2 className="mt-0.5 size-3.5 shrink-0" />
+                <span>{hotelRecommendation.safetyNotes}</span>
+              </div>
+              <div className="flex gap-2">
+                <Train className="mt-0.5 size-3.5 shrink-0" />
+                <span>{hotelRecommendation.transportNotes}</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {hotelRecommendation.nearbyTransitHubs.map((hub) => (
+                <span
+                  key={hub}
+                  className="rounded-full border border-teal-200 bg-white px-2 py-0.5 text-xs font-medium text-teal-900"
+                >
+                  {hub}
+                </span>
+              ))}
+            </div>
+            <a
+              href={hotelRecommendation.searchUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-between rounded-lg border border-teal-200 bg-white px-3 py-2 text-sm font-semibold text-teal-900 hover:bg-teal-100"
+            >
+              Hotel Search
+              <ExternalLink className="size-4" />
+            </a>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-sm leading-6 text-slate-600">
+            {plan
+              ? "Save the generated route to create a hotel-area recommendation."
+              : "The hotel recommendation uses the first and last stops of each planned day."}
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Label htmlFor="emailTo" className="flex items-center gap-2">
+            <Mail className="size-4 text-[#e85d4f]" />
+            Email itinerary
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              id="emailTo"
+              type="email"
+              placeholder="you@example.com"
+              value={emailTo}
+              onChange={(event) => onEmailToChange(event.target.value)}
+            />
+            <Button
+              type="button"
+              className="h-10 bg-[#e85d4f] text-white hover:bg-[#d94f43]"
+              disabled={!isSaved || sendingEmail || emailTo.trim().length === 0}
+              onClick={onSendEmail}
+            >
+              <Send className={cn("size-4", sendingEmail && "animate-pulse")} />
+              Send
+            </Button>
+          </div>
+          {emailMessage && (
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-700">
+              {emailMessage}
+            </div>
+          )}
+        </div>
+
+        {emails.length > 0 && (
+          <div className="space-y-2 border-t border-slate-200 pt-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Email Activity
+            </div>
+            {emails.slice(0, 3).map((email) => (
+              <div
+                key={email._id}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs leading-5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-semibold text-slate-900">
+                    {email.to}
+                  </span>
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 font-semibold",
+                      email.status === "sent" &&
+                        "bg-emerald-50 text-emerald-700",
+                      email.status === "skipped" &&
+                        "bg-amber-50 text-amber-800",
+                      email.status === "error" && "bg-rose-50 text-rose-700",
+                      email.status === "queued" && "bg-slate-100 text-slate-700",
+                    )}
+                  >
+                    {email.status}
+                  </span>
+                </div>
+                {email.error && (
+                  <div className="mt-1 line-clamp-2 text-slate-500">
+                    {email.error}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </CardContent>
     </Card>
