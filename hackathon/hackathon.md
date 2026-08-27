@@ -111,3 +111,14 @@
 - Verification: `npm run typecheck`, `npm run lint`, and `npm run build`
   completed successfully. Lint warnings remain the known `<img>` and starter
   `_error` warnings.
+
+## 2026-08-27 Phase 6
+
+- Replaced remaining raw `<img>` elements with `next/image` in the main
+  TravelSmart UI and the starter error boundary.
+- Added remote image host configuration for `chef.convex.dev`,
+  `images.unsplash.com`, and `places.googleapis.com`.
+- Removed the unused error prop warning from `app/error.tsx`.
+- Verification: `npm run typecheck`, `npm run lint`, `npm run build`, and
+  `curl -I http://localhost:50665` completed successfully. Lint now exits with
+  zero warnings.

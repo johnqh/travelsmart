@@ -1,9 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect } from "react";
 
 export default function ChefIsCooking({
-  error: _error,
   reset,
 }: {
   error: Error & { digest?: string };
@@ -31,11 +31,12 @@ export default function ChefIsCooking({
         fontFamily: "inherit",
       }}
     >
-      <img
+      <Image
         src="https://chef.convex.dev/chef.svg"
         alt=""
         width={72}
         height={42}
+        unoptimized
       />
       <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>
         Chef is still cooking…

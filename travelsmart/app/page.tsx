@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useMemo, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
@@ -1380,10 +1381,13 @@ function AttractionList({
                 onClick={() => onSelect(attraction._id)}
               >
                 <div className="flex gap-3">
-                  <img
+                  <Image
                     src={attraction.photoUrls[0]}
                     alt=""
+                    width={64}
+                    height={64}
                     className="size-16 shrink-0 rounded-md object-cover"
+                    unoptimized
                   />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold text-slate-950">
@@ -1619,10 +1623,13 @@ function AttractionDetails({ attraction }: { attraction: Attraction | null }) {
   return (
     <Card className="overflow-hidden rounded-lg border-slate-200 shadow-sm">
       <div className="relative h-52 bg-slate-200">
-        <img
+        <Image
           src={attraction.photoUrls[0]}
           alt=""
+          fill
+          sizes="360px"
           className="h-full w-full object-cover"
+          unoptimized
         />
         <div className="absolute left-3 top-3 flex flex-wrap gap-2">
           <span
