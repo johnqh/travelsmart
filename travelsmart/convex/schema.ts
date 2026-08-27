@@ -108,6 +108,96 @@ export default defineSchema({
     .index("by_tripId", ["tripId"])
     .index("by_tripId_and_cuisine", ["tripId", "cuisine"]),
 
+  plans: defineTable({
+    tripId: v.id("trips"),
+    sessionId: v.string(),
+    name: v.string(),
+    status: v.union(
+      v.literal("generated"),
+      v.literal("saved"),
+      v.literal("archived"),
+    ),
+    plannerVersion: v.string(),
+    score: v.number(),
+    summary: v.string(),
+    excludedAttractionIds: v.array(v.id("attractions")),
+    diagnostics: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    savedAt: v.optional(v.number()),
+  })
+    .index("by_tripId_and_updatedAt", ["tripId", "updatedAt"])
+    .index("by_sessionId_and_status_and_updatedAt", [
+      "sessionId",
+      "status",
+      "updatedAt",
+    ]),
+
+  planDays: defineTable({
+    planId: v.id("plans"),
+    tripId: v.id("trips"),
+    date: v.string(),
+    dayIndex: v.number(),
+    transportPolicy: v.union(
+      v.literal("walkTransitRideshare"),
+      v.literal("carOnly"),
+    ),
+    summary: v.string(),
+    score: v.number(),
+  })
+    .index("by_planId_and_dayIndex", ["planId", "dayIndex"])
+    .index("by_tripId", ["tripId"]),
+
+  planItems: defineTable({
+    planId: v.id("plans"),
+    planDayId: v.id("planDays"),
+    tripId: v.id("trips"),
+    type: v.union(
+      v.literal("attraction"),
+      v.literal("lunch"),
+      v.literal("dinner"),
+      v.literal("break"),
+    ),
+    attractionId: v.optional(v.id("attractions")),
+    restaurantId: v.optional(v.id("restaurants")),
+    name: v.string(),
+    startTime: v.string(),
+    endTime: v.string(),
+    durationMinutes: v.number(),
+    notes: v.string(),
+    bookingUrl: v.optional(v.string()),
+    lat: v.number(),
+    lng: v.number(),
+    sortOrder: v.number(),
+  })
+    .index("by_planDayId_and_sortOrder", ["planDayId", "sortOrder"])
+    .index("by_planId", ["planId"])
+    .index("by_attractionId", ["attractionId"]),
+
+  routeLegs: defineTable({
+    planId: v.id("plans"),
+    planDayId: v.id("planDays"),
+    tripId: v.id("trips"),
+    fromItemId: v.id("planItems"),
+    toItemId: v.id("planItems"),
+    mode: v.union(
+      v.literal("walk"),
+      v.literal("transit"),
+      v.literal("rideshare"),
+      v.literal("car"),
+    ),
+    durationMinutes: v.number(),
+    distanceMeters: v.number(),
+    polyline: v.array(v.object({ lat: v.number(), lng: v.number() })),
+    instructionsSummary: v.string(),
+    transitLineNames: v.array(v.string()),
+    transferCount: v.number(),
+    fallbackReason: v.optional(v.string()),
+    sortOrder: v.number(),
+  })
+    .index("by_planDayId_and_sortOrder", ["planDayId", "sortOrder"])
+    .index("by_planId", ["planId"]),
+
   featureRequests: defineTable({
     title: v.string(),
     description: v.string(),

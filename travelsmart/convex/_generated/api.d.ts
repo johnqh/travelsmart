@@ -9,6 +9,7 @@
  */
 
 import type * as featureRequests from "../featureRequests.js";
+import type * as plans from "../plans.js";
 import type * as refinementQuestions from "../refinementQuestions.js";
 import type * as trips from "../trips.js";
 
@@ -20,6 +21,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   featureRequests: typeof featureRequests;
+  plans: typeof plans;
   refinementQuestions: typeof refinementQuestions;
   trips: typeof trips;
 }>;

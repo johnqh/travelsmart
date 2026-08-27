@@ -25,3 +25,17 @@
   the local Convex logs stay useful while the app is developed.
 - Next step: replace the placeholder shell with the map-first TravelSmart
   workspace.
+
+## 2026-08-27 Phase 2
+
+- Added planned itinerary tables for generated plans, per-date days, timeline
+  items, and route legs.
+- Implemented the first deterministic planner as a local heuristic so ratings,
+  geography, meals, car mode, and no-transfer transit behavior can be exercised
+  before external Google routing is wired.
+- Wired the UI with a `Plan` / `Plan Again` button, date tabs, route timeline,
+  meal stops, colored transport legs, and gray pins for attractions excluded by
+  the day-window cap or user ratings.
+- Smoke-tested plan generation against a Tokyo demo trip. The current planner
+  generated three days, included 10 of 12 rated attractions, inserted lunch and
+  dinner each day, and exposed two skipped attractions for gray map pins.
