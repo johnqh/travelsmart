@@ -161,6 +161,24 @@ type OutboundEmail = {
   sentAt?: number;
 };
 
+type DiscoveryRun = {
+  _id: Id<"discoveryRuns">;
+  status: "queued" | "running" | "ready" | "fallback" | "partial" | "error";
+  message: string;
+  source: "providers" | "demoSeed" | "mixed" | "none";
+  providerStats: {
+    google: string;
+    firecrawl: string;
+    openai: string;
+    attractionCount: number;
+    restaurantCount: number;
+    sourceUrlCount: number;
+  };
+  startedAt: number;
+  finishedAt?: number;
+  error?: string;
+};
+
 const ratingOptions = [0, 1, 2, 3, 4] as const;
 
 const routeStyles: Record<
@@ -289,11 +307,13 @@ export default function Home() {
   const [activeDayIndex, setActiveDayIndex] = useState(0);
   const [emailTo, setEmailTo] = useState("");
   const [emailMessage, setEmailMessage] = useState<string | null>(null);
+  const [discoveryMessage, setDiscoveryMessage] = useState<string | null>(null);
 
-  const createDemoTrip = useMutation(api.trips.createDemoTrip);
+  const createTripMutation = useMutation(api.trips.createTrip);
   const setRating = useMutation(api.trips.setRating);
   const generatePlan = useMutation(api.plans.generatePlan);
   const savePlan = useMutation(api.plans.savePlan);
+  const discoverAttractions = useAction(api.discovery.discoverAttractions);
   const sendSavedPlan = useAction(api.email.sendSavedPlan);
 
   const trips = useQuery(
@@ -315,6 +335,10 @@ export default function Home() {
   const outboundEmails = useQuery(
     api.email.listForPlan,
     sessionId && plan ? { sessionId, planId: plan._id } : "skip",
+  );
+  const discoveryRun = useQuery(
+    api.discovery.getLatestRun,
+    sessionId && activeTripId ? { sessionId, tripId: activeTripId } : "skip",
   );
 
   const attractions = useMemo(() => workspace?.attractions ?? [], [workspace]);
@@ -355,8 +379,9 @@ export default function Home() {
     }
 
     setCreating(true);
+    setDiscoveryMessage(null);
     try {
-      const tripId = await createDemoTrip({
+      const tripId = await createTripMutation({
         sessionId,
         destinationName: destinationName.trim() || "Tokyo, Japan",
         startDate,
@@ -372,6 +397,12 @@ export default function Home() {
       setActiveTripId(tripId);
       setSelectedAttractionId(null);
       setActiveDayIndex(0);
+      const result = await discoverAttractions({ sessionId, tripId });
+      setDiscoveryMessage(result.message);
+    } catch (error) {
+      setDiscoveryMessage(
+        error instanceof Error ? error.message : "Discovery failed.",
+      );
     } finally {
       setCreating(false);
     }
@@ -482,6 +513,8 @@ export default function Home() {
               activeTripId={activeTripId}
               creating={creating}
               destinationName={destinationName}
+              discoveryMessage={discoveryMessage}
+              discoveryRun={discoveryRun}
               endDate={endDate}
               hasRentalCar={hasRentalCar}
               mealPreferences={mealPreferences}
@@ -500,6 +533,7 @@ export default function Home() {
                 setActiveTripId(tripId);
                 setSelectedAttractionId(null);
                 setActiveDayIndex(0);
+                setDiscoveryMessage(null);
               }}
               onStartDateChange={setStartDate}
             />
@@ -564,6 +598,8 @@ function TripSetupPanel({
   activeTripId,
   creating,
   destinationName,
+  discoveryMessage,
+  discoveryRun,
   endDate,
   hasRentalCar,
   mealPreferences,
@@ -583,6 +619,8 @@ function TripSetupPanel({
   activeTripId: Id<"trips"> | null;
   creating: boolean;
   destinationName: string;
+  discoveryMessage: string | null;
+  discoveryRun: DiscoveryRun | null | undefined;
   endDate: string;
   hasRentalCar: boolean;
   mealPreferences: string;
@@ -614,7 +652,9 @@ function TripSetupPanel({
           <CalendarDays className="size-4 text-teal-700" />
           Trip Setup
         </CardTitle>
-        <CardDescription>Tokyo sample data is wired through Convex.</CardDescription>
+        <CardDescription>
+          Provider discovery falls back to the Tokyo demo dataset.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-4 pt-0">
         <div className="space-y-2">
@@ -685,9 +725,15 @@ function TripSetupPanel({
           disabled={!sessionReady || creating}
           onClick={onCreateTrip}
         >
-          <Sparkles className="size-4" />
-          {creating ? "Creating" : "Start Discovery"}
+          <Sparkles className={cn("size-4", creating && "animate-pulse")} />
+          {creating ? "Discovering" : "Start Discovery"}
         </Button>
+
+        <DiscoveryStatusPanel
+          activeTripId={activeTripId}
+          message={discoveryMessage}
+          run={discoveryRun}
+        />
 
         <button
           type="button"
@@ -742,6 +788,73 @@ function TripSetupPanel({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function DiscoveryStatusPanel({
+  activeTripId,
+  message,
+  run,
+}: {
+  activeTripId: Id<"trips"> | null;
+  message: string | null;
+  run: DiscoveryRun | null | undefined;
+}) {
+  if (!activeTripId || (!run && !message)) {
+    return null;
+  }
+
+  const status = run?.status ?? "running";
+  const statusClass =
+    status === "ready" || status === "partial"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : status === "fallback"
+        ? "border-amber-200 bg-amber-50 text-amber-900"
+        : status === "error"
+          ? "border-rose-200 bg-rose-50 text-rose-800"
+          : "border-blue-200 bg-blue-50 text-blue-800";
+
+  return (
+    <div className={cn("space-y-2 rounded-lg border p-3 text-sm", statusClass)}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 font-semibold">
+          {status === "ready" || status === "partial" ? (
+            <CheckCircle2 className="size-4" />
+          ) : (
+            <RefreshCw
+              className={cn("size-4", status === "running" && "animate-spin")}
+            />
+          )}
+          Discovery {status}
+        </span>
+        {run && (
+          <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs font-semibold">
+            {run.source}
+          </span>
+        )}
+      </div>
+      <p className="text-xs leading-5">{message ?? run?.message}</p>
+      {run && (
+        <div className="grid grid-cols-3 gap-1.5">
+          <ProviderChip label="Google" value={run.providerStats.google} />
+          <ProviderChip label="Firecrawl" value={run.providerStats.firecrawl} />
+          <ProviderChip label="OpenAI" value={run.providerStats.openai} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProviderChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-md bg-white/80 px-2 py-1">
+      <div className="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+        {label}
+      </div>
+      <div className="truncate text-xs font-medium" title={value}>
+        {value}
+      </div>
+    </div>
   );
 }
 

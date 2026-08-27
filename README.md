@@ -27,6 +27,21 @@ backend and OpenAI/Firecrawl/AgentMail integrated into the product flow.
 
 See [docs/research.md](docs/research.md) for current findings.
 
+## Current Build
+
+The app lives in `travelsmart/`. It currently supports draft trip creation,
+provider-aware discovery with a Tokyo fallback dataset, attraction ratings,
+route planning, save/reopen, hotel-area recommendation, and AgentMail-ready
+itinerary email records.
+
+Run checks from `travelsmart/`:
+
+```bash
+npm run typecheck
+npm run lint
+npm run build
+```
+
 ## Planning Docs
 
 - [Product spec](docs/product-spec.md)

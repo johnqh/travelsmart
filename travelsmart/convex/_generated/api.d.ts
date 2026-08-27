@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as discovery from "../discovery.js";
 import type * as email from "../email.js";
 import type * as featureRequests from "../featureRequests.js";
 import type * as plans from "../plans.js";
@@ -21,6 +22,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  discovery: typeof discovery;
   email: typeof email;
   featureRequests: typeof featureRequests;
   plans: typeof plans;

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { action, internalMutation, query } from "./_generated/server";
+import { action, env, internalMutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 
 const emailStatusValidator = v.union(
@@ -105,8 +105,8 @@ export const sendSavedPlan = action({
       subject: payload.subject,
     });
 
-    const apiKey = getEnv("AGENTMAIL_API_KEY");
-    const inboxId = getEnv("AGENTMAIL_INBOX_ID");
+    const apiKey = env.AGENTMAIL_API_KEY;
+    const inboxId = env.AGENTMAIL_INBOX_ID;
     if (!apiKey || !inboxId) {
       const message =
         "AgentMail is wired, but AGENTMAIL_API_KEY and AGENTMAIL_INBOX_ID are not configured for this deployment.";
@@ -231,15 +231,6 @@ export const markError = internalMutation({
 
 function isEmailAddress(value: string) {
   return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
-
-function getEnv(name: string) {
-  const maybeProcess = (
-    globalThis as {
-      process?: { env?: Record<string, string | undefined> };
-    }
-  ).process;
-  return maybeProcess?.env?.[name];
 }
 
 function extractMessageId(payload: unknown) {

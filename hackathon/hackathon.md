@@ -59,3 +59,35 @@
   `curl -I http://localhost:50665` all completed successfully. Lint currently
   reports only known `<img>` optimization warnings and the starter
   `app/error.tsx` unused `_error` warning.
+
+## 2026-08-27 Phase 4
+
+- Added typed Convex app env declarations for `GOOGLE_MAPS_API_KEY`,
+  `FIRECRAWL_API_KEY`, `OPENAI_API_KEY`, `OPENAI_MODEL`,
+  `AGENTMAIL_API_KEY`, and `AGENTMAIL_INBOX_ID`.
+- Added `.env.example` and replaced the scaffold app README with TravelSmart
+  run/check/env instructions.
+- Added `discoveryRuns` and a `discovering` trip state so discovery has a
+  visible run record, provider stats, final status, and fallback reason.
+- Added `discovery:discoverAttractions`, a Convex action that can call Google
+  Places Text Search, Firecrawl Search, and OpenAI structured normalization
+  when keys are configured.
+- Provider references checked during implementation:
+  - Google Places Text Search uses `POST
+    https://places.googleapis.com/v1/places:searchText` with required field
+    masks.
+  - Firecrawl Search uses `POST https://api.firecrawl.dev/v2/search`.
+  - OpenAI structured normalization uses Chat Completions `response_format`
+    with `json_schema`.
+  - Google Routes `computeRoutes` remains the next routing upgrade target.
+- Refactored trip creation so the UI creates a draft trip, runs discovery, and
+  then displays provider status chips. With no provider keys set locally, the
+  action falls back to the Tokyo demo dataset instead of failing the product
+  flow.
+- Smoke-tested the new flow with trip `jh7b8z27am0zzpfjx1yranx4js8d864c`.
+  Discovery recorded `google/firecrawl/openai: not configured`, loaded 12
+  attractions and 4 restaurants, and the planner generated plan
+  `k574s3wbhfneq1gbgm71qmbqw58d8ecy` from that discovered trip.
+- Verification: `npm run typecheck`, `npm run lint`, `npm run build`, and
+  `curl -I http://localhost:50665` all completed successfully. Lint warnings
+  are still limited to known image optimization/starter warnings.

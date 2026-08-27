@@ -19,6 +19,7 @@ export default defineSchema({
     mealPreferences: v.array(v.string()),
     status: v.union(
       v.literal("draft"),
+      v.literal("discovering"),
       v.literal("readyToRate"),
       v.literal("planning"),
       v.literal("planned"),
@@ -30,6 +31,39 @@ export default defineSchema({
   })
     .index("by_sessionId_and_updatedAt", ["sessionId", "updatedAt"])
     .index("by_status", ["status"]),
+
+  discoveryRuns: defineTable({
+    tripId: v.id("trips"),
+    sessionId: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("running"),
+      v.literal("ready"),
+      v.literal("fallback"),
+      v.literal("partial"),
+      v.literal("error"),
+    ),
+    message: v.string(),
+    source: v.union(
+      v.literal("providers"),
+      v.literal("demoSeed"),
+      v.literal("mixed"),
+      v.literal("none"),
+    ),
+    providerStats: v.object({
+      google: v.string(),
+      firecrawl: v.string(),
+      openai: v.string(),
+      attractionCount: v.number(),
+      restaurantCount: v.number(),
+      sourceUrlCount: v.number(),
+    }),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+  })
+    .index("by_tripId_and_startedAt", ["tripId", "startedAt"])
+    .index("by_sessionId_and_startedAt", ["sessionId", "startedAt"]),
 
   attractions: defineTable({
     tripId: v.id("trips"),

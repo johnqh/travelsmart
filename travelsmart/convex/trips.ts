@@ -1,10 +1,22 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 
 const paceValidator = v.union(
   v.literal("relaxed"),
   v.literal("balanced"),
   v.literal("packed"),
+);
+
+const tripStatusValidator = v.union(
+  v.literal("draft"),
+  v.literal("discovering"),
+  v.literal("readyToRate"),
+  v.literal("planning"),
+  v.literal("planned"),
+  v.literal("saved"),
+  v.literal("error"),
 );
 
 const ratingValidator = v.union(
@@ -25,14 +37,7 @@ const tripSummaryValidator = v.object({
   hasRentalCar: v.boolean(),
   pace: paceValidator,
   mealPreferences: v.array(v.string()),
-  status: v.union(
-    v.literal("draft"),
-    v.literal("readyToRate"),
-    v.literal("planning"),
-    v.literal("planned"),
-    v.literal("saved"),
-    v.literal("error"),
-  ),
+  status: tripStatusValidator,
   updatedAt: v.number(),
 });
 
@@ -135,14 +140,7 @@ export const getTripWorkspace = query({
         hasRentalCar: v.boolean(),
         pace: paceValidator,
         mealPreferences: v.array(v.string()),
-        status: v.union(
-          v.literal("draft"),
-          v.literal("readyToRate"),
-          v.literal("planning"),
-          v.literal("planned"),
-          v.literal("saved"),
-          v.literal("error"),
-        ),
+        status: tripStatusValidator,
         updatedAt: v.number(),
       }),
       attractions: v.array(attractionWithRatingValidator),
@@ -231,6 +229,22 @@ export const getTripWorkspace = query({
   },
 });
 
+export const createTrip = mutation({
+  args: {
+    sessionId: v.string(),
+    destinationName: v.string(),
+    startDate: v.string(),
+    endDate: v.string(),
+    hasRentalCar: v.boolean(),
+    pace: paceValidator,
+    mealPreferences: v.array(v.string()),
+  },
+  returns: v.id("trips"),
+  handler: async (ctx, args) => {
+    return await insertTrip(ctx, args, "draft");
+  },
+});
+
 export const createDemoTrip = mutation({
   args: {
     sessionId: v.string(),
@@ -244,46 +258,39 @@ export const createDemoTrip = mutation({
   returns: v.id("trips"),
   handler: async (ctx, args) => {
     const now = Date.now();
-    const mealPreferences = args.mealPreferences
-      .map((preference) => preference.trim())
-      .filter((preference) => preference.length > 0)
-      .slice(0, 8);
+    const tripId = await insertTrip(ctx, args, "readyToRate");
+    await upsertTokyoSeedData(ctx, tripId, now);
+    return tripId;
+  },
+});
 
-    const tripId = await ctx.db.insert("trips", {
-      sessionId: args.sessionId,
-      title: `${args.destinationName} discovery plan`,
-      destinationName: args.destinationName,
-      destinationLat: 35.6764,
-      destinationLng: 139.65,
-      startDate: args.startDate,
-      endDate: args.endDate,
-      hasRentalCar: args.hasRentalCar,
-      pace: args.pace,
-      mealPreferences,
+export const seedDemoData = internalMutation({
+  args: {
+    tripId: v.id("trips"),
+    sessionId: v.string(),
+    destinationLat: v.optional(v.number()),
+    destinationLng: v.optional(v.number()),
+  },
+  returns: v.object({
+    attractionCount: v.number(),
+    restaurantCount: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const trip = await ctx.db.get(args.tripId);
+    if (!trip || trip.sessionId !== args.sessionId) {
+      throw new Error("Trip not found");
+    }
+
+    const now = Date.now();
+    const counts = await upsertTokyoSeedData(ctx, args.tripId, now);
+    await ctx.db.patch(args.tripId, {
+      destinationLat: args.destinationLat ?? trip.destinationLat,
+      destinationLng: args.destinationLng ?? trip.destinationLng,
       status: "readyToRate",
-      createdAt: now,
       updatedAt: now,
     });
 
-    for (const attraction of tokyoAttractions) {
-      await ctx.db.insert("attractions", {
-        tripId,
-        ...attraction,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-
-    for (const restaurant of tokyoRestaurants) {
-      await ctx.db.insert("restaurants", {
-        tripId,
-        ...restaurant,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-
-    return tripId;
+    return counts;
   },
 });
 
@@ -336,6 +343,125 @@ export const setRating = mutation({
     return null;
   },
 });
+
+async function insertTrip(
+  ctx: MutationCtx,
+  args: {
+    sessionId: string;
+    destinationName: string;
+    startDate: string;
+    endDate: string;
+    hasRentalCar: boolean;
+    pace: "relaxed" | "balanced" | "packed";
+    mealPreferences: string[];
+  },
+  status: "draft" | "readyToRate",
+) {
+  const now = Date.now();
+  const destinationName = args.destinationName.trim() || "Tokyo, Japan";
+  const destination = fallbackDestinationCoordinates(destinationName);
+
+  return await ctx.db.insert("trips", {
+    sessionId: args.sessionId,
+    title: `${destinationName} discovery plan`,
+    destinationName,
+    destinationLat: destination.lat,
+    destinationLng: destination.lng,
+    startDate: args.startDate,
+    endDate: args.endDate,
+    hasRentalCar: args.hasRentalCar,
+    pace: args.pace,
+    mealPreferences: normalizeMealPreferences(args.mealPreferences),
+    status,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+async function upsertTokyoSeedData(
+  ctx: MutationCtx,
+  tripId: Id<"trips">,
+  now: number,
+) {
+  const existingAttractions = await ctx.db
+    .query("attractions")
+    .withIndex("by_tripId", (q) => q.eq("tripId", tripId))
+    .take(80);
+  const attractionByName = new Map(
+    existingAttractions.map((attraction) => [
+      normalizeName(attraction.name),
+      attraction,
+    ]),
+  );
+
+  for (const attraction of tokyoAttractions) {
+    const existing = attractionByName.get(normalizeName(attraction.name));
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        ...attraction,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("attractions", {
+        tripId,
+        ...attraction,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  }
+
+  const existingRestaurants = await ctx.db
+    .query("restaurants")
+    .withIndex("by_tripId", (q) => q.eq("tripId", tripId))
+    .take(80);
+  const restaurantByName = new Map(
+    existingRestaurants.map((restaurant) => [
+      normalizeName(restaurant.name),
+      restaurant,
+    ]),
+  );
+
+  for (const restaurant of tokyoRestaurants) {
+    const existing = restaurantByName.get(normalizeName(restaurant.name));
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        ...restaurant,
+        updatedAt: now,
+      });
+    } else {
+      await ctx.db.insert("restaurants", {
+        tripId,
+        ...restaurant,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  }
+
+  return {
+    attractionCount: tokyoAttractions.length,
+    restaurantCount: tokyoRestaurants.length,
+  };
+}
+
+function normalizeMealPreferences(preferences: string[]) {
+  return preferences
+    .map((preference) => preference.trim())
+    .filter((preference) => preference.length > 0)
+    .slice(0, 8);
+}
+
+function normalizeName(value: string) {
+  return value.trim().toLowerCase().replaceAll(/\s+/g, " ");
+}
+
+function fallbackDestinationCoordinates(destinationName: string) {
+  if (destinationName.toLowerCase().includes("tokyo")) {
+    return { lat: 35.6764, lng: 139.65 };
+  }
+  return { lat: 35.6764, lng: 139.65 };
+}
 
 const tokyoAttractions = [
   {
