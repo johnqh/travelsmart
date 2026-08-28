@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   Building2,
@@ -269,28 +269,8 @@ const paceOptions: Array<{ value: Pace; label: string }> = [
 ];
 
 export default function Home() {
-  const [sessionId] = useState<string | null>(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
-
-    let storedSessionId = window.localStorage.getItem(
-      "travelsmart.sessionId",
-    );
-    if (!storedSessionId) {
-      storedSessionId = window.crypto.randomUUID();
-      window.localStorage.setItem("travelsmart.sessionId", storedSessionId);
-    }
-    return storedSessionId;
-  });
-  const [activeTripId, setActiveTripId] = useState<Id<"trips"> | null>(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
-
-    const storedTripId = window.localStorage.getItem("travelsmart.activeTripId");
-    return storedTripId ? (storedTripId as Id<"trips">) : null;
-  });
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [activeTripId, setActiveTripId] = useState<Id<"trips"> | null>(null);
   const [selectedAttractionId, setSelectedAttractionId] =
     useState<Id<"attractions"> | null>(null);
   const [destinationName, setDestinationName] = useState("Tokyo, Japan");
@@ -310,6 +290,28 @@ export default function Home() {
   const [emailMessage, setEmailMessage] = useState<string | null>(null);
   const [discoveryMessage, setDiscoveryMessage] = useState<string | null>(null);
   const [routingMessage, setRoutingMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const bootstrap = window.setTimeout(() => {
+      let storedSessionId = window.localStorage.getItem(
+        "travelsmart.sessionId",
+      );
+      if (!storedSessionId) {
+        storedSessionId = window.crypto.randomUUID();
+        window.localStorage.setItem("travelsmart.sessionId", storedSessionId);
+      }
+      setSessionId(storedSessionId);
+
+      const storedTripId = window.localStorage.getItem(
+        "travelsmart.activeTripId",
+      );
+      if (storedTripId) {
+        setActiveTripId(storedTripId as Id<"trips">);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(bootstrap);
+  }, []);
 
   const createTripMutation = useMutation(api.trips.createTrip);
   const setRating = useMutation(api.trips.setRating);
@@ -1477,13 +1479,26 @@ function TravelMap({
     activeDay?.items.filter(
       (item) => item.type === "lunch" || item.type === "dinner",
     ) ?? [];
+  const mapUrl = bounds
+    ? `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(
+        `${bounds.minLng},${bounds.minLat},${bounds.maxLng},${bounds.maxLat}`,
+      )}&layer=mapnik`
+    : null;
 
   return (
     <div className="relative h-full min-h-[520px] overflow-hidden bg-[#dff7f5]">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_24%,rgba(20,184,166,0.26),transparent_25%),radial-gradient(circle_at_80%_20%,rgba(14,165,233,0.20),transparent_24%),radial-gradient(circle_at_74%_78%,rgba(249,115,22,0.20),transparent_26%),linear-gradient(135deg,#dff7f5,#f8fafc_55%,#fff1e7)]" />
       <div className="absolute inset-0 opacity-50 [background-image:linear-gradient(rgba(15,23,42,0.09)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.09)_1px,transparent_1px)] [background-size:48px_48px]" />
+      {mapUrl && (
+        <iframe
+          title="OpenStreetMap travel area"
+          src={mapUrl}
+          loading="lazy"
+          className="absolute inset-0 h-full w-full border-0 opacity-85"
+        />
+      )}
       <svg
-        className="absolute inset-0 h-full w-full opacity-70"
+        className="pointer-events-none absolute inset-0 h-full w-full opacity-70"
         role="presentation"
       >
         <path
@@ -1503,7 +1518,7 @@ function TravelMap({
 
       {activeDay && (
         <svg
-          className="absolute inset-0 h-full w-full"
+          className="pointer-events-none absolute inset-0 h-full w-full"
           preserveAspectRatio="none"
           role="presentation"
           viewBox="0 0 100 100"
