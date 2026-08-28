@@ -1,7 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { LayerGroup, Map as LeafletMap } from "leaflet";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   Building2,
@@ -1469,75 +1470,83 @@ function TravelMap({
   onSelect: (attractionId: Id<"attractions">) => void;
 }) {
   const activeDay = plan?.days[activeDayIndex] ?? plan?.days[0] ?? null;
-  const activeAttractionIds = new Set(
-    activeDay?.items
-      .map((item) => item.attractionId)
-      .filter((id): id is Id<"attractions"> => Boolean(id)) ?? [],
-  );
-  const excludedAttractionIds = new Set(plan?.excludedAttractionIds ?? []);
   const mealItems =
     activeDay?.items.filter(
       (item) => item.type === "lunch" || item.type === "dinner",
     ) ?? [];
-  const mapUrl = bounds
-    ? `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(
-        `${bounds.minLng},${bounds.minLat},${bounds.maxLng},${bounds.maxLat}`,
-      )}&layer=mapnik`
-    : null;
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<LeafletMap | null>(null);
+  const layerRef = useRef<LayerGroup | null>(null);
+  const leafletRef = useRef<typeof import("leaflet") | null>(null);
+  const fitKeyRef = useRef<string | null>(null);
+  const dataRef = useRef({
+    attractions,
+    bounds,
+    activeDay,
+    mealItems,
+    plan,
+    onSelect,
+    selectedAttractionId,
+  });
+  dataRef.current = {
+    attractions,
+    bounds,
+    activeDay,
+    mealItems,
+    plan,
+    onSelect,
+    selectedAttractionId,
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void import("leaflet").then((L) => {
+      if (cancelled || !mapContainerRef.current || mapRef.current) {
+        return;
+      }
+
+      leafletRef.current = L;
+      const map = L.map(mapContainerRef.current, {
+        zoomControl: true,
+        attributionControl: true,
+      });
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19,
+      }).addTo(map);
+      mapRef.current = map;
+      layerRef.current = L.layerGroup().addTo(map);
+      renderLeafletMap(L, map, layerRef.current, dataRef.current, fitKeyRef);
+    });
+
+    return () => {
+      cancelled = true;
+      mapRef.current?.remove();
+      mapRef.current = null;
+      layerRef.current = null;
+      leafletRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mapRef.current && layerRef.current && leafletRef.current) {
+      renderLeafletMap(leafletRef.current, mapRef.current, layerRef.current, {
+        attractions,
+        bounds,
+        activeDay,
+        mealItems,
+        plan,
+        onSelect,
+        selectedAttractionId,
+      }, fitKeyRef);
+    }
+  }, [activeDay, attractions, bounds, mealItems, onSelect, plan, selectedAttractionId]);
 
   return (
     <div className="relative h-full min-h-[520px] overflow-hidden bg-[#dff7f5]">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_24%,rgba(20,184,166,0.26),transparent_25%),radial-gradient(circle_at_80%_20%,rgba(14,165,233,0.20),transparent_24%),radial-gradient(circle_at_74%_78%,rgba(249,115,22,0.20),transparent_26%),linear-gradient(135deg,#dff7f5,#f8fafc_55%,#fff1e7)]" />
-      <div className="absolute inset-0 opacity-50 [background-image:linear-gradient(rgba(15,23,42,0.09)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.09)_1px,transparent_1px)] [background-size:48px_48px]" />
-      {mapUrl && (
-        <iframe
-          title="OpenStreetMap travel area"
-          src={mapUrl}
-          loading="lazy"
-          className="absolute inset-0 h-full w-full border-0 opacity-85"
-        />
-      )}
-      <svg
-        className="pointer-events-none absolute inset-0 h-full w-full opacity-70"
-        role="presentation"
-      >
-        <path
-          d="M 40 360 C 220 300 310 180 520 230 S 830 380 1100 260"
-          fill="none"
-          stroke="#0891b2"
-          strokeDasharray="10 12"
-          strokeWidth="3"
-        />
-        <path
-          d="M 120 120 C 280 170 340 360 620 330 S 900 220 1040 420"
-          fill="none"
-          stroke="#0f766e"
-          strokeWidth="5"
-        />
-      </svg>
-
-      {activeDay && (
-        <svg
-          className="pointer-events-none absolute inset-0 h-full w-full"
-          preserveAspectRatio="none"
-          role="presentation"
-          viewBox="0 0 100 100"
-        >
-          {activeDay.legs.map((leg) => (
-            <path
-              key={leg._id}
-              d={polylinePath(leg.polyline, bounds)}
-              fill="none"
-              stroke={routeStyles[leg.mode].stroke}
-              strokeDasharray={leg.mode === "walk" ? "6 8" : undefined}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={leg.mode === "transit" ? 6 : 5}
-              opacity={0.95}
-            />
-          ))}
-        </svg>
-      )}
+      <div ref={mapContainerRef} className="absolute inset-0 z-0" />
 
       <div className="absolute left-4 top-4 rounded-lg border border-white/80 bg-white/90 p-3 shadow-sm backdrop-blur">
         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -1551,49 +1560,6 @@ function TravelMap({
               : "No trip loaded"}
         </div>
       </div>
-
-      {attractions.map((attraction) => {
-        const position = getMapPosition(attraction, bounds);
-        const isSelected = selectedAttractionId === attraction._id;
-        const isExcluded = excludedAttractionIds.has(attraction._id);
-        const isIncludedToday = activeAttractionIds.has(attraction._id);
-        return (
-          <button
-            key={attraction._id}
-            type="button"
-            title={attraction.name}
-            className={cn(
-              "absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white shadow-lg transition",
-              isSelected || isIncludedToday
-                ? "size-10 scale-110"
-                : "size-8 hover:scale-110",
-              isExcluded || attraction.rating === 0
-                ? "bg-slate-400"
-                : categoryStyles[attraction.category].pin,
-              isExcluded && "opacity-60 grayscale",
-            )}
-            style={{ left: `${position.x}%`, top: `${position.y}%` }}
-            onClick={() => onSelect(attraction._id)}
-          >
-            <MapPin className="size-4 text-white" />
-            <span className="sr-only">{attraction.name}</span>
-          </button>
-        );
-      })}
-
-      {mealItems.map((item) => {
-        const position = getMapPosition(item, bounds);
-        return (
-          <div
-            key={item._id}
-            title={item.name}
-            className="absolute flex size-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-lg border-2 border-white bg-[#e85d4f] text-white shadow-lg"
-            style={{ left: `${position.x}%`, top: `${position.y}%` }}
-          >
-            <Utensils className="size-4" />
-          </div>
-        );
-      })}
 
       <div className="absolute bottom-4 left-4 right-4 flex flex-wrap gap-2 rounded-lg border border-white/80 bg-white/90 p-3 shadow-sm backdrop-blur">
         {activeDay &&
@@ -1621,6 +1587,101 @@ function TravelMap({
       </div>
     </div>
   );
+}
+
+function renderLeafletMap(
+  L: typeof import("leaflet"),
+  map: LeafletMap,
+  layer: LayerGroup,
+  data: {
+    attractions: Attraction[];
+    bounds: MapBounds | null;
+    activeDay: PlanDay | null;
+    mealItems: PlanItem[];
+    plan: Plan | null | undefined;
+    onSelect: (attractionId: Id<"attractions">) => void;
+    selectedAttractionId: Id<"attractions"> | null;
+  },
+  fitKeyRef: { current: string | null },
+) {
+  layer.clearLayers();
+  const activeAttractionIds = new Set(
+    data.activeDay?.items
+      .map((item) => item.attractionId)
+      .filter((id): id is Id<"attractions"> => Boolean(id)) ?? [],
+  );
+  const excludedAttractionIds = new Set(data.plan?.excludedAttractionIds ?? []);
+
+  data.activeDay?.legs.forEach((leg) => {
+    if (leg.polyline.length < 2) return;
+    L.polyline(
+      leg.polyline.map((point) => [point.lat, point.lng] as [number, number]),
+      {
+        color: routeStyles[leg.mode].stroke,
+        weight: leg.mode === "transit" ? 6 : 5,
+        opacity: 0.9,
+        dashArray: leg.mode === "walk" ? "8 10" : undefined,
+      },
+    ).addTo(layer);
+  });
+
+  data.attractions.forEach((attraction) => {
+    const isIncludedToday = activeAttractionIds.has(attraction._id);
+    const isExcluded = excludedAttractionIds.has(attraction._id);
+    const categoryColors: Record<Category, string> = {
+      temple: "#0f766e",
+      viewpoint: "#2563eb",
+      museum: "#7c3aed",
+      market: "#ea580c",
+      neighborhood: "#475569",
+      park: "#059669",
+      waterfront: "#0e7490",
+      experience: "#c026d3",
+    };
+    const color = isExcluded || attraction.rating === 0
+      ? "#64748b"
+      : categoryColors[attraction.category];
+    const marker = L.circleMarker([attraction.lat, attraction.lng], {
+      radius:
+        isIncludedToday || attraction._id === data.selectedAttractionId ? 10 : 8,
+      color: "#ffffff",
+      weight: 2,
+      fillColor: color,
+      fillOpacity: isExcluded ? 0.45 : 0.95,
+      opacity: isExcluded ? 0.55 : 1,
+    });
+    marker.bindTooltip(attraction.name, { direction: "top", offset: [0, -8] });
+    marker.on("click", () => data.onSelect(attraction._id));
+    marker.addTo(layer);
+  });
+
+  data.mealItems.forEach((item) => {
+    L.circleMarker([item.lat, item.lng], {
+      radius: 8,
+      color: "#ffffff",
+      weight: 2,
+      fillColor: "#e85d4f",
+      fillOpacity: 1,
+    }).bindTooltip(item.name, { direction: "top", offset: [0, -8] }).addTo(layer);
+  });
+
+  const boundsKey = data.bounds
+    ? `${data.bounds.minLat},${data.bounds.maxLat},${data.bounds.minLng},${data.bounds.maxLng}`
+    : "default";
+  if (fitKeyRef.current !== boundsKey) {
+    fitKeyRef.current = boundsKey;
+    if (data.bounds) {
+      map.fitBounds(
+        [
+          [data.bounds.minLat, data.bounds.minLng],
+          [data.bounds.maxLat, data.bounds.maxLng],
+        ],
+        { padding: [44, 44], maxZoom: 14 },
+      );
+    } else {
+      map.setView([35.6762, 139.6503], 12);
+    }
+  }
 }
 
 function AttractionDetails({ attraction }: { attraction: Attraction | null }) {
