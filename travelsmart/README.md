@@ -10,6 +10,8 @@ npm run dev
 ```
 
 The current local quickstart server is available at `http://localhost:50665`.
+For the full restart procedure, architecture, current checkpoint, and TODO
+list, read the repository-level [continuation handoff](../docs/handoff.md).
 
 ## Convex Env
 
@@ -34,5 +36,4 @@ npm run lint
 npm run build
 ```
 
-Lint currently reports only known image optimization warnings from `<img>` usage
-and the starter `app/error.tsx` unused `_error` warning.
+Lint is currently clean. The production build also runs typechecking.

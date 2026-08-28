@@ -122,3 +122,24 @@
 - Verification: `npm run typecheck`, `npm run lint`, `npm run build`, and
   `curl -I http://localhost:50665` completed successfully. Lint now exits with
   zero warnings.
+
+## 2026-08-28 Continuation Checkpoint
+
+- Fixed the hydration mismatch caused by reading browser `localStorage` and
+  `crypto.randomUUID()` during the initial server render. Browser session and
+  active-trip restoration now run after hydration.
+- Replaced the temporary CSS/SVG map surface and iframe map layer with Leaflet
+  and OpenStreetMap tiles. Attraction pins, meal markers, and route polylines
+  now share geographic coordinates and pan/zoom together.
+- Added Leaflet dependencies and imported the Leaflet stylesheet before the
+  Tailwind layers so the production build succeeds.
+- Added `docs/handoff.md` with the current architecture, restart commands,
+  provider setup, completed commit history, verification commands, and
+  prioritized TODOs.
+- Latest commit: `97a63ce Synchronize map pins with map movement`, pushed to
+  `origin/main`.
+- Verification: `npm run typecheck`, `npm run lint`, `npm run build`, and
+  `git diff --check` completed successfully.
+- Current limitation: provider secrets are not configured in the local
+  environment, so discovery, routing, and email use their documented fallback
+  or skipped states. Public deployment and the final demo remain TODOs.

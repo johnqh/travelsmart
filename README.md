@@ -50,3 +50,4 @@ npm run build
 - [Itinerary planner spec](docs/itinerary-planner-spec.md)
 - [Implementation plan](docs/implementation-plan.md)
 - [Hackathon plan](docs/hackathon-plan.md)
+- [Continuation handoff and TODOs](docs/handoff.md)
